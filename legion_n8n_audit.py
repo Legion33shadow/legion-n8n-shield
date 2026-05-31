@@ -207,6 +207,10 @@ class N8nAudit:
             self.add_finding("HIGH", "No Docker volumes defined",
                 "Without volumes, all n8n data (workflows, credentials) is lost on container restart.",
                 deduct=15)
+        if "N8N_ENCRYPTION_KEY" not in content:
+            self.add_finding("HIGH", "N8N_ENCRYPTION_KEY not set",
+                "Without N8N_ENCRYPTION_KEY, credentials stored in n8n are not encrypted. Add N8N_ENCRYPTION_KEY to your .env or docker-compose environment.",
+                deduct=10)
 
     # ── Generate report ──
     def run(self):
