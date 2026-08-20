@@ -1,52 +1,50 @@
-# LEGION n8n Shield
+# legion-n8n-shield
 
-Free CLI security audit tool for self-hosted n8n instances.
+CLI tool to check if your self-hosted n8n instance is vulnerable to **CVE-2026-21858** (Ni8mare).
 
-## What it checks
+## About CVE-2026-21858
 
-- n8n version exposure against recent critical CVEs
-- public reachability
-- missing security headers
-- Docker Compose risks
-- SQLite usage in production
-- missing Docker volumes
-- exposed port 5678
-- missing restart policy
-- missing N8N_ENCRYPTION_KEY
+- **CVSS:** 10.0 (Critical)
+- **Affected:** n8n versions 1.65.0 to < 1.121.0
+- **Vector:** Unauthenticated remote attacker can access files on the server through form-based workflow execution
+- **Impact:** Exposure of sensitive information (credentials, keys, config files), potential further compromise
+- **Fix:** Update to n8n >= 1.121.0
+- **Source:** [Tenable CVE-2026-21858](https://www.tenable.com/cve/CVE-2026-21858)
+
+## How it works
+
+The tool checks the n8n version exposed at the public settings endpoint and compares it against the patched version (1.121.0).
+
+- Version < 1.121.0 = VULNERABLE
+- Version >= 1.121.0 = PATCHED
+
+Important: This performs a version check only. It does not test the actual exploit path (Content-Type confusion in webhook/file handling). The most reliable mitigation is updating n8n.
+
+## Quick manual check
+
+    curl -s https://your-n8n-url/rest/settings | grep -o versionCli
+
+If the version is below 1.121.0, update immediately.
 
 ## Usage
 
-```bash
-pip install httpx
-python3 legion_n8n_audit.py --host https://your-n8n-domain.com
-python3 legion_n8n_audit.py --host https://your-n8n-domain.com --compose ./docker-compose.yml
-```
+    python3 legion_n8n_audit.py https://your-n8n-instance.com
 
-## Example output
+Only scan instances you own or are authorized to test.
 
-```
-SECURITY SCORE: 24/100
+## What this tool does NOT do
 
-CRITICAL:
-- No Docker volumes
+- Does not attempt exploitation
+- Does not test the Content-Type confusion attack path
+- Does not guarantee safety
+- Does not replace a proper security audit
 
-HIGH:
-- SQLite detected in production
-- Port 5678 directly exposed
+## References
 
-MEDIUM:
-- Missing restart policy
-- Missing N8N_ENCRYPTION_KEY
-```
+- [Tenable CVE-2026-21858](https://www.tenable.com/cve/CVE-2026-21858)
+- [NVD Entry](https://nvd.nist.gov/vuln/detail/CVE-2026-21858)
+- [n8n Security Advisories](https://github.com/n8n-io/n8n/security/advisories)
 
-## Services
+## License
 
-If your score is low and you need help fixing it:
-
-- Written Audit Report — €199
-- Emergency Hardening — €750
-- Full Secure Setup — €1,500
-- Monthly Maintenance — €300/month
-
-Contact: api@legion-api.com
-Site: https://legion-api.com
+MIT
