@@ -48,3 +48,7 @@ Only scan instances you own or are authorized to test.
 ## License
 
 MIT
+
+## Web version
+
+A web-based version of this scanner is available at [legion-api.com](https://legion-api.com)
