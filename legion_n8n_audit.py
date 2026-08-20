@@ -1,294 +1,157 @@
 #!/usr/bin/env python3
 """
-LEGION n8n Shield — Security Audit Tool
-Checks self-hosted n8n for critical CVE exposure, misconfigurations, and risks.
-Run: python3 legion_n8n_audit.py --host https://your-n8n-instance.com
+legion-n8n-shield — CVE-2026-21858 Version Checker
+Checks if a self-hosted n8n instance is running a version vulnerable
+to CVE-2026-21858 (Ni8mare). CVSS 10.0.
+
+Affected: n8n 1.65.0 to < 1.121.0
+Fix: Update to >= 1.121.0
+
+Only scan instances you own or are authorized to test.
 """
-import sys, json, subprocess, datetime, hashlib, socket
-from pathlib import Path
 
-try:
-    import httpx
-    HAS_HTTPX = True
-except ImportError:
-    HAS_HTTPX = False
-    import urllib.request
+import sys
+import json
+import urllib.request
+import urllib.error
+import ssl
+import re
+from datetime import datetime
 
-VERSION = "1.0.0"
-REPORT_DATE = datetime.datetime.utcnow().isoformat()
-
-# CVEs to check
-CVES = {
-    "CVE-2026-21858": {
-        "name": "Ni8mare",
-        "cvss": 10.0,
-        "desc": "Unauthenticated RCE via form webhook content-type confusion",
-        "fixed_in": "1.121.0",
-        "check": "unauthenticated_access",
-    },
-    "CVE-2025-68613": {
-        "name": "Expression RCE",
-        "cvss": 9.8,
-        "desc": "Authenticated RCE via expression evaluation engine",
-        "fixed_in": "1.120.4",
-        "check": "version",
-    },
-    "CVE-2026-21877": {
-        "name": "Git Node RCE",
-        "cvss": 9.9,
-        "desc": "Authenticated RCE via Git node file-upload command injection",
-        "fixed_in": "1.121.3",
-        "check": "version",
-    },
-}
-
-COLORS = {
-    "RED": "\033[91m", "YELLOW": "\033[93m",
-    "GREEN": "\033[92m", "BLUE": "\033[94m",
-    "BOLD": "\033[1m", "RESET": "\033[0m",
-}
-
-def c(color, text):
-    return f"{COLORS.get(color, '')}{text}{COLORS['RESET']}"
+PATCHED_VERSION = "1.121.0"
+FIRST_AFFECTED = "1.65.0"
 
 def parse_version(v):
     try:
-        return tuple(int(x) for x in v.strip("v").split("."))
-    except Exception:
-        return (0, 0, 0)
+        return tuple(int(x) for x in v.strip().split("."))
+    except (ValueError, AttributeError):
+        return None
 
-def version_lt(v, fixed):
-    return parse_version(v) < parse_version(fixed)
-
-def fetch(url, timeout=8):
-    if HAS_HTTPX:
-        try:
-            r = httpx.get(url, timeout=timeout, follow_redirects=True,
-                           headers={"User-Agent": "LEGION-n8n-Audit/1.0"})
-            return r.status_code, r.text, dict(r.headers)
-        except Exception as e:
-            return None, str(e), {}
+def check_n8n(target_url):
+    target_url = target_url.rstrip("/")
+    settings_url = f"{target_url}/rest/settings"
+    
+    print(f"")
+    print(f"  legion-n8n-shield — CVE-2026-21858 Checker")
+    print(f"  {'='*45}")
+    print(f"  Target:  {target_url}")
+    print(f"  Date:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  CVE:     CVE-2026-21858 (Ni8mare)")
+    print(f"  CVSS:    10.0 (Critical)")
+    print(f"  Patched: >= {PATCHED_VERSION}")
+    print(f"  {'='*45}")
+    print(f"")
+    
+    # Fetch version
+    print(f"  [1/3] Fetching {settings_url} ...")
+    
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    
+    try:
+        req = urllib.request.Request(
+            settings_url,
+            headers={"User-Agent": "legion-n8n-shield/2.0"}
+        )
+        resp = urllib.request.urlopen(req, timeout=10, context=ctx)
+        data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        print(f"  [!] HTTP Error: {e.code}")
+        if e.code == 401 or e.code == 403:
+            print(f"  [i] Endpoint requires authentication.")
+            print(f"  [i] This is a GOOD sign — your instance is not publicly exposed.")
+            print(f"  [i] But check your n8n version manually: n8n --version")
+        return
+    except urllib.error.URLError as e:
+        print(f"  [!] Connection failed: {e.reason}")
+        print(f"  [i] Could not reach {target_url}")
+        return
+    except json.JSONDecodeError:
+        print(f"  [!] Response is not valid JSON")
+        return
+    except Exception as e:
+        print(f"  [!] Error: {e}")
+        return
+    
+    # Extract version
+    print(f"  [2/3] Extracting version ...")
+    
+    version_str = None
+    for key in ["versionCli", "n8nVersion", "version"]:
+        if key in data and data[key]:
+            version_str = str(data[key])
+            break
+    
+    if not version_str:
+        print(f"  [!] Could not find version in response")
+        print(f"  [i] Available keys: {list(data.keys())[:10]}")
+        return
+    
+    print(f"  [i] Detected version: {version_str}")
+    
+    # Compare version
+    print(f"  [3/3] Checking against patched version ({PATCHED_VERSION}) ...")
+    print(f"")
+    
+    current = parse_version(version_str)
+    patched = parse_version(PATCHED_VERSION)
+    first_affected = parse_version(FIRST_AFFECTED)
+    
+    if current is None:
+        print(f"  [?] UNKNOWN — Could not parse version: {version_str}")
+        print(f"      Check manually: n8n --version")
+        return
+    
+    if current >= patched:
+        print(f"  [OK] PATCHED")
+        print(f"       Version {version_str} >= {PATCHED_VERSION}")
+        print(f"       This instance is NOT affected by CVE-2026-21858.")
+    elif current < first_affected:
+        print(f"  [OK] NOT AFFECTED")
+        print(f"       Version {version_str} < {FIRST_AFFECTED}")
+        print(f"       This version predates the vulnerable code.")
     else:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "LEGION-n8n-Audit/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.status, r.read().decode(errors="ignore"), dict(r.headers)
-        except Exception as e:
-            return None, str(e), {}
-
-class N8nAudit:
-    def __init__(self, host, docker_compose=None):
-        self.host = host.rstrip("/")
-        self.docker_compose = docker_compose
-        self.findings = []
-        self.score = 100  # start at 100, deduct for issues
-        self.n8n_version = None
-        self.exposed = False
-
-    def add_finding(self, severity, title, detail, deduct=0, cve=None):
-        self.findings.append({
-            "severity": severity,
-            "title": title,
-            "detail": detail,
-            "cve": cve,
-        })
-        self.score = max(0, self.score - deduct)
-
-    # ── Check 1: Is the instance reachable / exposed? ──
-    def check_exposure(self):
-        status, body, headers = fetch(f"{self.host}/healthz")
-        if status == 200:
-            self.exposed = True
-            self.add_finding("INFO", "Instance is publicly reachable",
-                f"GET {self.host}/healthz → HTTP 200. Instance is exposed to the internet.")
-        elif status is None:
-            self.add_finding("INFO", "Instance not reachable",
-                f"Could not connect to {self.host}. May be behind a firewall or offline.", deduct=0)
-        else:
-            self.add_finding("INFO", "Instance returned non-200",
-                f"GET {self.host}/healthz → HTTP {status}.")
-
-    # ── Check 2: n8n version ──
-    def check_version(self):
-        status, body, headers = fetch(f"{self.host}/rest/settings")
-        if status == 200:
-            try:
-                data = json.loads(body)
-                v = data.get("versionCli") or data.get("n8nVersion") or ""
-                if v:
-                    self.n8n_version = v
-                    # Check against known CVEs
-                    for cve_id, info in CVES.items():
-                        if version_lt(v, info["fixed_in"]):
-                            self.add_finding(
-                                "CRITICAL",
-                                f"Vulnerable to {cve_id} ({info['name']})",
-                                f"n8n {v} is below fixed version {info['fixed_in']}. {info['desc']}",
-                                deduct=30, cve=cve_id
-                            )
-                    # If all good
-                    all_safe = all(not version_lt(v, info["fixed_in"]) for info in CVES.values())
-                    if all_safe:
-                        self.add_finding("OK", f"n8n version {v} is patched",
-                            "No known critical CVEs for this version.")
-            except Exception:
-                pass
-        elif status == 401:
-            self.add_finding("OK", "REST settings endpoint is protected (401)",
-                "Basic auth or access control appears to be in place.")
-        else:
-            self.add_finding("INFO", f"Could not determine n8n version (HTTP {status})",
-                "Version check via /rest/settings failed.")
-
-    # ── Check 3: Authentication ──
-    def check_auth(self):
-        # Try to access the login page
-        status, body, headers = fetch(f"{self.host}/signin")
-        if status == 200 and "email" in body.lower():
-            self.add_finding("OK", "Login page present",
-                "n8n login page is accessible. Authentication is likely enabled.")
-        # Try webhook without auth
-        status2, body2, headers2 = fetch(f"{self.host}/webhook-test/test")
-        if status2 == 404 or status2 == 400:
-            pass  # Expected
-        elif status2 == 200:
-            self.add_finding("HIGH", "Webhook endpoint responds without auth",
-                f"GET /webhook-test/test returned HTTP 200. Webhooks may be exposed.",
-                deduct=15)
-
-    # ── Check 4: Security headers ──
-    def check_headers(self):
-        status, body, headers = fetch(self.host)
-        if status is None:
-            return
-        headers_lower = {k.lower(): v for k, v in headers.items()}
-        issues = []
-        good = []
-        security_headers = {
-            "x-frame-options": "Clickjacking protection",
-            "x-content-type-options": "MIME-type sniffing protection",
-            "strict-transport-security": "HSTS (HTTPS enforcement)",
-            "content-security-policy": "CSP (script injection protection)",
-        }
-        for h, desc in security_headers.items():
-            if h in headers_lower:
-                good.append(f"✓ {h}: {desc}")
-            else:
-                issues.append(f"✗ Missing {h}: {desc}")
-
-        if issues:
-            self.add_finding("MEDIUM", "Missing security headers",
-                "\n".join(issues), deduct=5)
-        if good:
-            self.add_finding("OK", "Security headers present",
-                "\n".join(good))
-
-    # ── Check 5: Docker compose analysis ──
-    def check_docker_compose(self):
-        if not self.docker_compose:
-            return
-        p = Path(self.docker_compose)
-        if not p.exists():
-            return
-        content = p.read_text()
-        issues = []
-        if "sqlite" in content.lower() or "N8N_DB_TYPE" not in content:
-            issues.append("SQLite detected — not recommended for production (data loss risk)")
-            self.add_finding("HIGH", "SQLite database in production",
-                "n8n should use PostgreSQL for production. SQLite has no concurrent write support.",
-                deduct=10)
-        if "restart:" not in content:
-            issues.append("No restart policy — instance won't recover after crash")
-            self.add_finding("MEDIUM", "No Docker restart policy",
-                "Add 'restart: unless-stopped' to your docker-compose.yml", deduct=5)
-        if "N8N_BASIC_AUTH_ACTIVE" not in content and "N8N_USER_MANAGEMENT" not in content:
-            issues.append("No explicit auth config detected")
-        if "volumes:" not in content:
-            self.add_finding("HIGH", "No Docker volumes defined",
-                "Without volumes, all n8n data (workflows, credentials) is lost on container restart.",
-                deduct=15)
-        if "N8N_ENCRYPTION_KEY" not in content:
-            self.add_finding("HIGH", "N8N_ENCRYPTION_KEY not set",
-                "Without N8N_ENCRYPTION_KEY, credentials stored in n8n are not encrypted. Add N8N_ENCRYPTION_KEY to your .env or docker-compose environment.",
-                deduct=10)
-
-    # ── Generate report ──
-    def run(self):
-        print(c("BOLD", f"\n{'='*60}"))
-        print(c("BOLD", f"  LEGION n8n Shield — Security Audit v{VERSION}"))
-        print(c("BOLD", f"  Target: {self.host}"))
-        print(c("BOLD", f"  Date:   {REPORT_DATE}"))
-        print(c("BOLD", f"{'='*60}\n"))
-
-        print("Running checks...\n")
-        self.check_exposure()
-        self.check_version()
-        self.check_auth()
-        self.check_headers()
-        if self.docker_compose:
-            self.check_docker_compose()
-
-        # Print findings
-        sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "OK": 4}
-        sorted_findings = sorted(self.findings, key=lambda f: sev_order.get(f["severity"], 9))
-
-        for f in sorted_findings:
-            sev = f["severity"]
-            color = {"CRITICAL": "RED", "HIGH": "RED", "MEDIUM": "YELLOW",
-                     "INFO": "BLUE", "OK": "GREEN"}.get(sev, "RESET")
-            icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡",
-                    "INFO": "🔵", "OK": "✅"}.get(sev, "•")
-            cve_tag = f" [{f['cve']}]" if f.get("cve") else ""
-            print(f"  {icon} {c(color, sev)}{cve_tag}: {c('BOLD', f['title'])}")
-            for line in f["detail"].split("\n"):
-                print(f"     {line}")
-            print()
-
-        # Score
-        print(c("BOLD", f"{'='*60}"))
-        if self.score >= 80:
-            score_color = "GREEN"
-        elif self.score >= 50:
-            score_color = "YELLOW"
-        else:
-            score_color = "RED"
-
-        print(c("BOLD", f"  SECURITY SCORE: {c(score_color, str(self.score) + '/100')}"))
-        print()
-
-        if self.score < 80:
-            print(c("BOLD", "  Need help securing this instance?"))
-            print("  LEGION n8n Shield — Emergency Hardening Service")
-            print("  From €199 (audit) to €750 (full hardening)")
-            print("  Contact: api@legion-api.com")
-            print("  https://legion-api.com")
-        print(c("BOLD", f"{'='*60}\n"))
-
-        # JSON output for integration
-        report = {
-            "version": VERSION,
-            "date": REPORT_DATE,
-            "target": self.host,
-            "n8n_version": self.n8n_version,
-            "exposed": self.exposed,
-            "score": self.score,
-            "findings": self.findings,
-        }
-        return report
-
+        print(f"  [!!] VULNERABLE")
+        print(f"       Version {version_str} is between {FIRST_AFFECTED} and {PATCHED_VERSION}")
+        print(f"       This instance IS affected by CVE-2026-21858.")
+        print(f"")
+        print(f"  Action required:")
+        print(f"    1. Update n8n to >= {PATCHED_VERSION} immediately")
+        print(f"    2. Rotate ALL credentials stored in n8n")
+        print(f"    3. Review access logs for suspicious webhook requests")
+        print(f"    4. Check for unauthorized file access")
+        print(f"")
+        print(f"  References:")
+        print(f"    https://www.tenable.com/cve/CVE-2026-21858")
+        print(f"    https://nvd.nist.gov/vuln/detail/CVE-2026-21858")
+    
+    # Additional checks
+    print(f"")
+    print(f"  --- Additional observations ---")
+    
+    auth_header = data.get("authenticationMethod", "")
+    if auth_header:
+        print(f"  [i] Auth method: {auth_header}")
+    
+    if data.get("enterprise"):
+        print(f"  [i] Enterprise features detected")
+    
+    public_api = data.get("publicApi", {})
+    if isinstance(public_api, dict) and public_api.get("enabled"):
+        print(f"  [!] Public API is enabled — review access controls")
+    
+    print(f"")
+    print(f"  Note: This tool checks version only. It does NOT test")
+    print(f"  the actual exploit path (Content-Type confusion in")
+    print(f"  webhook/file handling). Update n8n regardless of this")
+    print(f"  tool output.")
+    print(f"")
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="LEGION n8n Shield — Security Audit")
-    parser.add_argument("--host", default="http://localhost:5678",
-                        help="n8n instance URL (default: http://localhost:5678)")
-    parser.add_argument("--docker-compose", default=None,
-                        help="Path to docker-compose.yml for additional checks")
-    parser.add_argument("--json", action="store_true", help="Output JSON report")
-    args = parser.parse_args()
-
-    audit = N8nAudit(args.host, args.docker_compose)
-    report = audit.run()
-
-    if args.json:
-        print(json.dumps(report, indent=2))
+    if len(sys.argv) < 2:
+        print("Usage: python3 legion_n8n_audit.py https://your-n8n-url.com")
+        print("")
+        print("Only scan instances you own or are authorized to test.")
+        sys.exit(1)
+    check_n8n(sys.argv[1])
