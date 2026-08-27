@@ -52,3 +52,12 @@ MIT
 ## Web version
 
 A web-based version of this scanner is available at [legion-api.com](https://legion-api.com)
+
+
+## Other projects
+
+- [AI Security Incident Database](https://huggingface.co/datasets/gemmozero/ai-agent-security-incidents) — 1,111+ classified incidents
+- [Full dataset with causal analysis](https://gemmo.gumroad.com/l/mdevxu)
+- [All 30 AI datasets](https://huggingface.co/gemmozero)
+- [Legion API](https://legion-api.com)
+
