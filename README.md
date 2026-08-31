@@ -61,3 +61,7 @@ A web-based version of this scanner is available at [legion-api.com](https://leg
 - [All 30 AI datasets](https://huggingface.co/gemmozero)
 - [Legion API](https://legion-api.com)
 
+
+## API Access
+
+Live API on RapidAPI: [Legion AI Security Incidents](https://rapidapi.com/gemmozero/api/legion-ai-security-incidents)
